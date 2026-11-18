@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#121925">
+  <title>TraficGuard GUI</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <div id="login" class="login-page" hidden>
+    <section class="login-card surface">
+      <div class="brand"><span class="brand-mark" aria-hidden="true"></span> TraficGuard GUI</div>
+      <h1 id="login-title">Вход в панель</h1>
+      <form id="login-form" class="fields">
+        <label>Имя пользователя<input name="username" autocomplete="username" required maxlength="80"></label>
+        <label>Пароль<input type="password" name="password" autocomplete="current-password" required maxlength="512"></label>
+        <button class="primary" type="submit" disabled>Войти</button>
+      </form>
+      <form id="login-code-form" class="fields" hidden>
+        <label>Код из приложения<input name="totp" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required></label>
+        <button class="primary" type="submit">Войти</button>
+        <button class="quiet" id="login-code-back" type="button">Назад</button>
+      </form>
+      <form id="setup-password-form" class="fields" hidden>
+        <label>Новый пароль<input name="new_password" type="password" autocomplete="new-password" required minlength="8" maxlength="512"></label>
+        <label>Повторите новый пароль<input name="confirm_password" type="password" autocomplete="new-password" required minlength="8" maxlength="512"></label>
+        <button class="primary" type="submit">Продолжить</button>
+      </form>
+      <form id="enroll-form" class="fields" hidden>
+        <p class="muted">Отсканируйте QR-код в приложении-аутентификаторе и введите шестизначный код.</p>
+        <img id="enroll-qr" width="220" height="220" alt="QR-код для настройки TrafficGuard">
+        <label>Код из приложения<input name="totp" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required></label>
+        <button class="primary" type="submit">Подтвердить и войти</button>
+      </form>
+      <p id="login-error" class="form-error" role="alert" hidden></p>
+    </section>
+  </div>
+  <div id="shell" hidden>
+    <header class="topbar">
+      <div class="top-inner">
+        <a class="brand" href="#overview" aria-label="TraficGuard GUI · Обзор"><span class="brand-mark" aria-hidden="true"></span> TraficGuard GUI</a>
+        <nav aria-label="Разделы"><a href="#overview" id="overview-tab">Обзор</a><a href="#settings" id="settings-tab">Настройки</a></nav>
+        <div class="actions logout">
+          <a class="button quiet" href="https://github.com/dotX12/traffic-guard" target="_blank" rel="noopener noreferrer">GitHub</a>
+          <button class="quiet" id="logout" type="button">Выйти</button>
+        </div>
+      </div>
+    </header>
+    <main>
+      <p id="notice" class="notice" role="status" hidden></p>
+      <section id="overview" hidden>
+        <div class="heading">
+          <h1>Обзор</h1>
+          <button id="collect" class="secondary" type="button">Собрать сейчас</button>
+        </div>
+        <div class="metrics">
+          <article class="surface metric"><span>Записано пакетов</span><b id="total">—</b></article>
+          <article class="surface metric"><span>Хосты в сборе</span><b id="active-hosts">—</b></article>
+          <article class="surface metric"><span>Последний успешный сбор</span><b id="last-sync">—</b></article>
+        </div>
+        <section class="surface filters" aria-label="Параметры обзора">
+          <div class="controls">
+            <label>Период<select id="period"><option value="1">Последние 24 часа</option><option value="7">Последние 7 дней</option><option value="30">Последние 30 дней</option><option value="all">За всё время</option><option value="custom">Задать даты</option></select></label>
+            <div id="custom-period" class="date-fields" hidden>
+              <label>С<input id="since" type="datetime-local"></label>
+              <label>До<input id="until" type="datetime-local"></label>
+            </div>
+            <button id="open-filter" class="secondary" type="button">+ Фильтр</button>
+            <div class="refresh-controls">
+              <label class="check-row"><input id="auto-refresh" type="checkbox" role="switch" checked> Автообновление</label>
+              <button id="refresh-events" class="quiet" type="button">Обновить</button>
+            </div>
+          </div>
+          <div class="filter-summary"><span id="group-summary" class="muted"></span><span id="table-timezone" class="muted"></span></div>
+          <div id="chips" class="chips" aria-label="Активные фильтры"></div>
+        </section>
+        <div class="journal-layout">
+          <aside class="group-sidebar" aria-label="Группировка">
+            <button id="open-group" class="quiet group-toggle" type="button" aria-label="Группировка" title="Группировка" aria-expanded="false" aria-controls="group-sidebar-content">
+              <span aria-hidden="true">›<br>›<br>›</span>
+            </button>
+            <div id="group-sidebar-content" class="surface group-sidebar-content" hidden>
+              <form id="group-fields"></form>
+              <button id="clear-groups" class="quiet" type="button">Сбросить</button>
+            </div>
+          </aside>
+        <section class="surface data-section" aria-label="События">
+          <div class="table-scroll"><table id="events-table">
+            <thead><tr id="events-head"><th id="column-settings-cell" class="column-settings-cell" scope="col">
+              <button id="open-columns" class="quiet columns-gear" type="button" popovertarget="column-settings" aria-label="Выбрать колонки" title="Выбрать колонки"><span aria-hidden="true">⚙︎</span></button>
+            </th></tr></thead>
+            <tbody id="events-body"></tbody>
+          </table></div>
+          <p id="events-empty" class="empty" role="status" hidden></p>
+          <div id="events-pages" class="pager" hidden></div>
+        </section>
+        <div id="column-settings" class="surface column-settings" popover aria-label="Колонки журнала"></div>
+        </div>
+      </section>
+      <section id="settings" hidden>
+        <div class="heading"><h1>Настройки</h1></div>
+        <nav id="settings-nav" class="subnav" aria-label="Настройки">
+          <a href="#settings/hosts">Хосты</a><a href="#settings/credentials">Учётные данные</a><a href="#settings/storage">Сбор и хранение</a><a href="#settings/audit">Журнал действий</a><a href="#settings/account">Аккаунт</a>
+        </nav>
+        <section id="hosts-panel" class="surface config-panel" hidden>
+          <div class="panel-heading"><h2>Хосты</h2><div class="actions">
+            <button id="host-import" class="quiet" type="button">Импорт</button>
+            <a id="host-export" class="button quiet" href="/api/hosts/export" download>Экспорт</a>
+            <button id="add-host" class="primary" type="button">+ Хост</button>
+          </div></div>
+          <input id="import-file" type="file" accept=".json,application/json" hidden>
+          <div class="actions host-selection">
+            <label class="check-row"><input id="select-hosts" type="checkbox"> Все хосты</label>
+            <span id="selected-host-count" class="muted"></span>
+            <button id="bulk-enable" class="quiet" type="button">Включить сбор</button>
+            <button id="bulk-disable" class="quiet" type="button">Отключить сбор</button>
+            <button id="bulk-credential" class="quiet" type="button">Назначить УЗ</button>
+            <button id="bulk-delete" class="quiet" type="button">Удалить</button>
+          </div>
+          <div id="hosts-list" class="records"></div>
+        </section>
+        <section id="credentials-panel" class="surface config-panel" hidden>
+          <div class="panel-heading"><h2>Учётные данные</h2><div class="actions">
+            <a href="#settings/ssh-guide" class="button quiet">SSH-пользователь только для чтения</a>
+            <button id="add-credential" class="primary" type="button">+ Учётные данные</button>
+          </div></div>
+          <div id="credentials-list" class="records"></div>
+        </section>
+        <section id="ssh-guide-panel" class="surface config-panel" hidden>
+          <div class="panel-heading"><h2>Как создать SSH-пользователя только для чтения на сервере</h2><a class="button quiet" href="#settings/credentials">К учётным данным</a></div>
+          <p><a class="text-button" href="/api/reader" download>Скачать скрипт чтения</a> · файл traffic-guard-reader</p>
+          <article id="ssh-guide-body" class="guide-body"></article>
+        </section>
+        <section id="storage-panel" class="surface config-panel" hidden>
+          <div class="panel-heading"><h2>Сбор и хранение</h2></div>
+          <form id="storage-form" class="fields settings-form">
+            <label>Интервал опроса, секунды<input type="number" name="poll_seconds" min="10" max="3600" required></label>
+            <label>Хранение событий, дни<input type="number" name="retention_days" min="1" max="365" required></label>
+            <small>Снижение срока удалит события старше нового периода после сохранения.</small>
+            <button class="primary" type="submit">Сохранить</button>
+          </form>
+        </section>
+        <section id="audit-panel" class="surface config-panel" hidden>
+          <div class="panel-heading"><h2>Журнал действий</h2></div>
+          <div id="audit-list" class="records"></div>
+        </section>
+        <section id="account-panel" class="surface config-panel" hidden>
+          <div class="panel-heading"><h2>Часовой пояс</h2></div>
+          <form id="timezone-form" class="fields settings-form">
+            <label>Часовой пояс<input name="timezone" list="timezones" required maxlength="100" placeholder="Asia/Ho_Chi_Minh"></label>
+            <datalist id="timezones"></datalist>
+            <button class="primary" type="submit">Сохранить часовой пояс</button>
+          </form>
+          <div class="panel-heading account-section"><h2>Смена пароля</h2></div>
+          <form id="account-password-form" class="fields settings-form">
+            <label>Текущий пароль<input name="current_password" type="password" autocomplete="current-password" required maxlength="512"></label>
+            <label>Новый пароль<input name="new_password" type="password" autocomplete="new-password" required minlength="8" maxlength="512"></label>
+            <label>Повторите новый пароль<input name="confirm_password" type="password" autocomplete="new-password" required minlength="8" maxlength="512"></label>
+            <p id="account-password-error" class="form-error" role="alert" hidden></p>
+            <button class="primary" type="submit">Сменить пароль</button>
+          </form>
+        </section>
+      </section>
+    </main>
+  </div>
+  <template id="trafficguard-install-help">
+    <details class="hint">
+      <summary>Ручная установка TrafficGuard на Debian</summary>
+      <p>В мастере TrafficGuard есть недоработка: на чистом Debian установка может завершиться успешно, хотя сбор CSV не настроился из-за отсутствия rsyslog. Без CSV в журнале панели будут IP и порты, а названия сетей и ASN останутся пустыми.</p>
+      <p><strong>Новая установка.</strong> Сначала выполните на ноде под root:</p>
+      <pre><code>apt-get update &amp;&amp; apt-get install rsyslog logrotate whois</code></pre>
+      <p>Затем установите TrafficGuard и запустите <code>traffic-guard full</code> со своими списками <code>-u</code> и флагом <code>--enable-logging</code>. <a class="text-button" href="https://github.com/dotX12/traffic-guard#способы-использования" target="_blank" rel="noopener noreferrer">Инструкция автора</a></p>
+      <p><strong>Уже установлен.</strong> Нажмите «Проверить» в карточке хоста. Диагностика должна показать, что журнал доступен и CSV читается. Для проверки на ноде выполните под root:</p>
+      <pre><code>systemctl is-active rsyslog.service antiscan-aggregate.timer
+head -n 3 /var/log/iptables-scanners-aggregate.csv</code></pre>
+      <p>Если служба или таймер отсутствуют, установите пакеты и повторите <code>traffic-guard full</code> с теми же списками и <code>--enable-logging</code>. Один заголовок в CSV допустим, пока в агрегацию не попали события.</p>
+    </details>
+  </template>
+  <dialog id="dialog">
+    <form id="dialog-form">
+      <div class="panel-heading"><h2 id="dialog-title"></h2><button id="dialog-close" class="quiet icon-button" type="button" aria-label="Закрыть">×</button></div>
+      <div id="dialog-body" class="fields"></div>
+      <p id="dialog-error" class="form-error" role="alert" hidden></p>
+      <div id="dialog-actions" class="actions dialog-actions">
+        <button id="dialog-cancel" class="secondary" type="button">Отмена</button><button id="dialog-save" class="primary" type="submit">Сохранить</button>
+      </div>
+    </form>
+  </dialog>
+</body>
+</html>

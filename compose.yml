@@ -1,0 +1,35 @@
+name: resist-antiscan-viewer
+x-panel: &panel
+  build: .
+  image: resist-local/antiscan-viewer:local
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs: ["/tmp:mode=1777,size=32m"]
+  environment:
+    PANEL_ORIGIN: ${PANEL_ORIGIN:-http://127.0.0.1:4090}
+    PANEL_SSH_CIDRS: ${PANEL_SSH_CIDRS:-}
+services:
+  viewer:
+    <<: *panel
+    ports: ["127.0.0.1:${PANEL_PORT:-4090}:4090"]
+    volumes:
+      - data:/data
+      - keys:/keys:ro
+    restart: unless-stopped
+    init: true
+    healthcheck:
+      test: ["CMD", "python", "/app/app.py", "health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+  setup:
+    <<: *panel
+    profiles: [setup]
+    command: [init]
+    volumes:
+      - data:/data
+      - keys:/keys
+volumes:
+  data:
+  keys:

@@ -1,0 +1,77 @@
+#!/usr/bin/python3 -I
+"""Fixed SSH entry point for root-owned, read-only TrafficGuard access."""
+
+import os
+import json
+import re
+import shlex
+import subprocess
+import sys
+
+HELPER = "/usr/local/sbin/traffic-guard-reader"
+SUDO = "/usr/bin/sudo"
+JOURNAL = "/usr/bin/journalctl"
+CSV = "/var/log/iptables-scanners-aggregate.csv"
+
+
+def valid(args):
+    return args in (["csv"], ["diagnose"]) or (
+        len(args) == 3 and args[0] in ("probe", "journal") and
+        re.fullmatch(r"[a-zA-Z0-9_=;:+/-]{1,512}", args[1]) and
+        re.fullmatch(r"[0-9]{1,12}", args[2])
+    )
+
+
+def diagnose():
+    rules = {}
+    found_chain = False
+    for family, command in (("v4", "iptables-save"), ("v6", "ip6tables-save")):
+        try:
+            result = subprocess.run([f"/usr/sbin/{command}", "-t", "filter"], capture_output=True,
+                                    text=True, timeout=4, check=True)
+        except (OSError, subprocess.SubprocessError):
+            rules[family] = None
+            continue
+        lines = result.stdout.splitlines()
+        found_chain |= any(line.startswith(":SCANNERS-BLOCK ") for line in lines)
+        hooked = any(line.split()[:2] == ["-A", "INPUT"] and "-j SCANNERS-BLOCK" in line for line in lines)
+        logged = any(line.startswith("-A SCANNERS-BLOCK ") and "-j LOG " in line
+                     and f"ANTISCAN-{family}:" in line for line in lines)
+        rules[family] = hooked and logged
+    installed = found_chain or any(os.path.exists(path) for path in (
+        "/usr/local/bin/traffic-guard", "/usr/bin/traffic-guard",
+        "/usr/local/bin/antiscan-aggregate-logs.sh", "/etc/systemd/system/antiscan-ipset-restore.service",
+    ))
+    return {"installed": True if installed else None if None in rules.values() else False,
+            "logging": rules}
+
+
+def main():
+    args = sys.argv[1:]
+    if args == ["ssh"] and os.geteuid() != 0:
+        try:
+            original = shlex.split(os.environ.get("SSH_ORIGINAL_COMMAND", ""))
+        except ValueError:
+            sys.exit(2)
+        if original[:3] != [SUDO, "-n", HELPER] or not valid(original[3:]):
+            sys.exit(2)
+        os.execv(SUDO, original)
+    if not valid(args):
+        sys.exit(2)
+    os.environ["LC_ALL"] = "C"
+    if args[0] == "csv":
+        os.execv("/usr/bin/cat", ["/usr/bin/cat", CSV])
+    if args[0] == "diagnose":
+        print(json.dumps(diagnose()))
+        return
+    mode, cursor, since = args
+    if mode == "probe":
+        scope = "--lines=1"
+    else:
+        scope = f"--since=@{since}" if cursor == "-" else f"--cursor={cursor}"
+    os.execv(JOURNAL,[JOURNAL,"_TRANSPORT=kernel","--grep=ANTISCAN-v[46]: ","--no-pager",
+                     "--output=json","--output-fields=MESSAGE",scope])
+
+
+if __name__ == "__main__":
+    main()
